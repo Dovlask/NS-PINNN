@@ -1,0 +1,56 @@
+{
+  "case": "prolate_spheroid a/b=4, alpha=0 (axisymmetric potential flow)",
+  "timestamp_utc": "2026-06-07T23:19:20.263537+00:00",
+  "git_commit": "f944a0cd03c7f35a239955505d83bbdc5a07f831",
+  "physical": {
+    "T_air_K": 293.15,
+    "rho_air": 1.204,
+    "mu_air": 1.825e-05,
+    "nu_air": 1.51578073089701e-05,
+    "U_inf": 30.0,
+    "a": 0.3,
+    "b": 0.075,
+    "aspect_ratio": 4.0,
+    "gamma": 1.4,
+    "R_gas": 287.0
+  },
+  "hypothesis_checks": {
+    "Re_b": 296876.7123287671,
+    "Re_a": 1187506.8493150685,
+    "Ma": 0.0874120567951663,
+    "Re_b_gt_6e4": true,
+    "Ma_lt_0p3": true,
+    "theta_sep_deg": 128.2
+  },
+  "nondimensional": {
+    "L_ref": 0.15,
+    "a_star": 2.0,
+    "b_star": 0.5,
+    "r_star_inf": 10.0,
+    "e": 0.9682458365518543,
+    "c_star": 1.9364916731037085,
+    "xi0": 1.0327955589886444,
+    "alpha0": 0.15081448546771722,
+    "k1": 0.0815572500879464
+  },
+  "data_protocol": {
+    "N_taps": 40,
+    "theta_min_deg": 5.0,
+    "theta_max_deg": 128.0,
+    "azimuth_step_deg": 137.5,
+    "per_tap_sigma": false,
+    "sigma": 0.029113405655397464,
+    "sigma_rms": 0.029113405655397464,
+    "sigma_dist": {
+      "family": "truncnorm",
+      "loc": 0.0,
+      "scale": 0.025,
+      "low": 0.0,
+      "high": 0.05
+    }
+  },
+  "seeds": {
+    "seed_sigma": 20240601,
+    "seed_noise": 20240602
+  }
+}
