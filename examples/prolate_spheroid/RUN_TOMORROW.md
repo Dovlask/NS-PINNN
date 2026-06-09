@@ -1,156 +1,197 @@
-# RUN_TOMORROW.md — passo a passo na máquina GPU do laboratório
+# RUN_TOMORROW.md — rodar o PINN na GPU (PC do lab: Windows + RTX A2000)
 
-Guia completo para o computador do laboratório: montar o **ambiente virtual**,
-validar, rodar os testes, fazer um *smoke run* e então treinar o PINN de verdade
-e **conferir a convergência**. Tudo é rodado de dentro de `examples/prolate_spheroid/`.
+Copia-e-cola, de cima pra baixo. Os datasets já vêm no clone (congelados), então
+**não precisa** rodar `data_gen` no lab.
 
-> Integridade: os datasets já estão **congelados** em `data/`
-> (`cp_synthetic.csv`, σ=0.029113; e `cp_synthetic_sigma0.csv`, piloto σ=0).
-> Determinísticos pelas sementes. Lamb só entra em `data_gen.py` e `evaluate.py`.
+**TL;DR:** o PC é Windows com GPU NVIDIA. O JAX só usa a GPU por **Linux/WSL2**
+(um Linux dentro do Windows que usa a MESMA RTX A2000). Então: instala/abre o
+**WSL2 (Seção 0)** → roda os blocos no terminal do Ubuntu. Se não tiver admin pra
+instalar o WSL, vá para o **Apêndice CPU** no fim.
 
 ---
 
-## 0. Ambiente virtual (SIM, use venv — máquina compartilhada)
+## 0. Pôr o JAX na GPU via WSL2 (faça uma vez)
 
-Numa máquina de laboratório compartilhada, **crie um ambiente virtual** (não
-instale no Python do sistema). Duas opções; escolha uma.
+### 0.1 — Checar se o WSL já existe (PowerShell normal)
+Abra o **PowerShell** (tecla Windows, digite "PowerShell", Enter) e rode:
+```powershell
+wsl -l -v
+```
+- Se listar uma distro **Ubuntu** com **VERSION 2** → o WSL já está pronto. **Pule para 0.4.**
+- Se der erro/"não reconhecido" ou não listar nada → faça **0.2**.
 
-> ⚠️ **JAX + GPU é oficialmente Linux.** Se o computador do lab for **Linux**, o
-> caminho abaixo dá GPU direto. Se for **Windows nativo**, o JAX-GPU não tem wheel
-> oficial — use **WSL2** (Ubuntu) e siga o caminho Linux lá dentro, OU rode em CPU
-> (funciona, só mais lento). Cheque com `nvidia-smi` se há GPU e qual CUDA.
+### 0.2 — Instalar o WSL2 + Ubuntu (PowerShell como **Administrador**)
+Feche o PowerShell, abra de novo com botão direito → **"Executar como administrador"**:
+```powershell
+wsl --install -d Ubuntu
+```
+Reinicie o PC se ele pedir. Depois abra **"Ubuntu"** no menu Iniciar e crie um
+**usuário e senha** Linux (qualquer um; a senha some na tela enquanto digita —
+normal). Isso te joga num terminal Linux (o "Ubuntu").
 
-### Opção A — venv + pip (Linux ou WSL2)
+### 0.3 — Driver NVIDIA do Windows
+A GPU só aparece no WSL se o **driver NVIDIA do Windows** for recente. Se o PC é de
+trabalho com a A2000, provavelmente já está ok. Se na etapa 0.4 a GPU não aparecer,
+atualize o driver em https://www.nvidia.com/download/index.aspx (escolha RTX A2000).
+**NÃO** instale "CUDA toolkit" no Windows nem driver NVIDIA dentro do Ubuntu — o
+driver do Windows já entrega a GPU pro WSL.
+
+### 0.4 — Confirmar que o Ubuntu/WSL enxerga a GPU
+No terminal **Ubuntu** (não no PowerShell), rode:
 ```bash
-# na RAIZ do repo (onde está setup.py)
+nvidia-smi
+```
+Tem que aparecer uma tabela com **"NVIDIA RTX A2000"**. Se aparecer, a GPU está
+visível no WSL. Se der "command not found" ou "No devices", veja **0.3** (driver) e
+depois, no PowerShell: `wsl --shutdown`, e reabra o Ubuntu.
+
+---
+
+## 1. Montar o projeto na GPU (terminal Ubuntu — cola o bloco INTEIRO)
+```bash
+sudo apt update && sudo apt install -y python3-venv python3-pip git
+git clone https://github.com/Dovlask/NS-PINNN.git
+cd NS-PINNN
+git checkout EP
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-pip install -e .                      # instala o pacote jaxpi + deps base (CPU jax)
-pip install -U "jax[cuda12]"          # GPU: casa com CUDA 12.x do lab (veja nvidia-smi)
-pip install torch pytest              # torch: usado por jaxpi/samplers.py; pytest p/ os testes
-```
-
-### Opção B — conda
-```bash
-conda create -n pinn python=3.11 -y
-conda activate pinn
 pip install -e .
 pip install -U "jax[cuda12]" torch pytest
-```
-
-### Confirme o ambiente
-```bash
-python -c "import jax; print('devices:', jax.devices())"   # espera [CudaDevice(...)]
-python -c "import flax, optax, ml_collections, scipy, torch; print('deps OK')"
+python -c "import jax; print('JAX devices:', jax.devices())"
 cd examples/prolate_spheroid
 ```
-Se `jax.devices()` listar só CPU, o treino roda mas lento — revise a instalação
-do `jax[cuda12]` / WSL2.
+**A penúltima linha TEM que mostrar `JAX devices: [CudaDevice(id=0)]`.**
+Se mostrar `[CpuDevice...]`, pare e veja o **Troubleshooting** no fim — não adianta
+treinar em CPU sem querer.
+
+> Toda vez que abrir o Ubuntu de novo (outro dia), reative o ambiente:
+> ```bash
+> cd ~/NS-PINNN && source .venv/bin/activate && cd examples/prolate_spheroid
+> ```
 
 ---
 
-## 1. Testes (GATE — não treine antes de ficar verde)
-
+## 2. Testes (GATE — não treine antes de ficar verde)
 ```bash
 python -m pytest tests/ -q
 ```
-Cobre: `test_geometry.py` (área MC < 0.5%, pools fora do corpo — já passou sem
-JAX), `test_lamb.py` (constantes de Lamb; ∇²φ≈0 com taxa **O(h²)**; BC-1;
-decaimento far-field ~ −3; mapa inverso < 1e−10) e `test_autodiff.py` (laplaciano
-da rede por autodiff vs FD — pega o bug do jacobiano da normalização).
-Se algum falhar, **pare e me mande a saída**.
+Esperado: todos verdes. Se algum falhar, **pare e me mande a saída**.
 
 ---
 
-## 2. Smoke run (~2 min — confirma que treina ponta a ponta)
-
+## 3. Smoke run (~2 min — confirma que treina ponta a ponta)
 ```bash
-python main.py --config=configs/plain.py \
-  --config.run_name=smoke --config.training.max_steps=2000 \
-  --config.logging.log_every_steps=100 --config.saving.save_every_steps=2000
+python main.py --config=configs/plain.py --config.run_name=smoke --config.training.max_steps=2000 --config.logging.log_every_steps=100 --config.saving.save_every_steps=2000
+```
+```bash
 python main.py --config=configs/plain.py --config.run_name=smoke --config.mode=eval
 ```
-As perdas devem **descer**; gera `results/smoke/loss_history.csv`, `metrics.json`
-e `figures/*.png` sem erro. Se rodar sem crashar, a integração JAX/jaxpi está OK.
+As perdas devem **descer** e gerar `results/smoke/` com `metrics.json` e figuras.
 
-> **OOM na GPU?** reduza `--config.training.batch_size_per_device=1024` e/ou
-> `--config.sampling.n_surface=2000 --config.sampling.n_collocation=10000`.
-> Múltiplas GPUs com comportamento estranho no `pmap`? fixe uma: `export CUDA_VISIBLE_DEVICES=0`.
+> **OOM (a A2000 tem pouca VRAM)?** rode com lote menor:
+> ```bash
+> python main.py --config=configs/plain.py --config.run_name=smoke --config.training.max_steps=2000 --config.training.batch_size_per_device=1024 --config.sampling.n_surface=2000 --config.sampling.n_collocation=10000
+> ```
 
 ---
 
-## 3. Treino real + checagem de convergência (progressão recomendada)
-
-A ordem vai do mais limpo ao mais realista:
-
+## 4. Treino real + checagem de convergência (rode em ordem)
 ```bash
-# (a) PILOTO sigma=0 : fisica + dados 100% coerentes com a analitica (Lamb)
-#     -> o dataset noise-free ja esta congelado; se quiser regerar:  python data_gen.py --sigma0
 python main.py --config=configs/pilot_sigma0.py
+```
+```bash
 python main.py --config=configs/pilot_sigma0.py --config.mode=eval
-
-# (b) FISICA PURA (sem dados) : o BVP sozinho deve convergir ao Lamb
+```
+```bash
 python main.py --config=configs/ablation_A.py
+```
+```bash
 python main.py --config=configs/ablation_A.py --config.mode=eval
-
-# (c) COMPLETA (controle, plain) : fisica + dados de Cp ruidosos (sigma>0)
+```
+```bash
 python main.py --config=configs/plain.py
+```
+```bash
 python main.py --config=configs/plain.py --config.mode=eval
-
-# (d) TECNICAS AVANCADAS ON (ModifiedMlp+Fourier+RWF+grad-norm)
+```
+```bash
 python main.py --config=configs/default.py
+```
+```bash
 python main.py --config=configs/default.py --config.mode=eval
 ```
+Progressão: (pilot σ=0) física + dados perfeitos → (ablation_A) física pura →
+(plain) física + dados ruidosos → (default) técnicas avançadas.
 
-Por que (a) é um passo coerente: o piloto σ=0 é prescrito pelo protocolo
-(CLAUDE.md Sec. 9.7) para fixar hiperparâmetros e é a checagem mais limpa de que
-o pipeline reproduz o Lamb — com dados perfeitos + física, espere `rel_L2_field`
-**bem pequeno** (≪ 2%). É distinto de (b): em (a) o termo de dados está ativo
-(dados = analítico); em (b) não há dados, só física.
-
-### Como saber se CONVERGIU — abra `results/<run>/metrics.json`
-
-O bloco `"pass"` traz os critérios pré-registrados (`EXPERIMENTS.md`):
+### Convergiu? abra `results/<run>/metrics.json`, bloco `"pass"`:
 
 | métrica | alvo (σ>0) | piloto σ=0 |
 |---|---|---|
-| `rel_L2_field` | **≤ 0.02** | idem (espere muito menor) |
-| `RMSE_cp_surface` | **≤ 0.0291** (σ) | **≤ 1e−2** (absoluto) |
+| `rel_L2_field` | **≤ 0.02** | idem (espere bem menor) |
+| `RMSE_cp_surface` | **≤ 0.0291** (σ) | **≤ 1e−2** |
 | `sigma_hat_holdout` | **∈ [0.0146, 0.0437]** | **≤ 1e−2** (≈ 0) |
 | `rms_pde/bc1/bc2_residual` | **≤ 1e−2** | idem |
 
-(No σ=0, `metrics.json` marca `"noise_free_pilot": true` e troca os critérios
-relativos a σ por bares absolutos — a banda de σ degenera a zero.)
-
-Sinais visuais (`results/<run>/figures/`): `cp_eta.png` (linha PINN **em cima**
-da Lamb), `loss_curves.png` (tudo descendo), `error_map.png` (erro pequeno),
-`residual_hist.png` (resíduos ~ N(0,σ²); no piloto a gaussiana é omitida).
-
-Diagnóstico: `sigma_hat ≪ σ` → overfit do ruído (reportar como falha);
-`rel_L2_field` alto → treine mais (`--config.training.max_steps=80000`) ou use
-`configs/default.py`. **`ablation_D` (só dados) DEVE falhar no campo** — é o ponto.
+Figuras em `results/<run>/figures/`: `cp_eta.png` (PINN em cima da Lamb),
+`loss_curves.png` (descendo), `error_map.png`, `residual_hist.png`.
+`ablation_D` (só dados) **deve falhar no campo** — é o esperado.
 
 ---
 
-## 4. Campanha completa (depois que (a)–(d) convergirem)
-
-Ablações físicas + varredura de arquiteturas, **≥ 5 sementes cada** (média ± dp;
-nunca só a melhor semente):
-
+## 5. Campanha completa (depois que a Seção 4 convergir) — ≥ 5 sementes
 ```bash
-for cfg in ablation_A ablation_B ablation_C ablation_D plain default \
-           no_fourier_feature no_rwf no_grad_norm ntk sota; do
+for cfg in ablation_A ablation_B ablation_C ablation_D plain default no_fourier_feature no_rwf no_grad_norm ntk sota; do
   for s in 42 7 13 21 100; do
     python main.py --config=configs/$cfg.py --config.seed=$s --config.run_name=${cfg}_s${s}
     python main.py --config=configs/$cfg.py --config.seed=$s --config.run_name=${cfg}_s${s} --config.mode=eval
   done
 done
 ```
-Preencha as tabelas de `REPORT.md` a partir dos `metrics.json`. Claim honesto:
+Depois, preencha `REPORT.md` a partir dos `metrics.json`. Claim honesto:
 **A ≈ C (os dados não degradam)** — nunca “os dados melhoraram a solução”.
 
-> **L-BFGS** está implementado mas **OFF por padrão** (`config.training.use_lbfgs`).
-> Só ligue (`--config.training.use_lbfgs=True`) depois que o Adam convergir — é o
-> único trecho não testado nesta máquina; o checkpoint do Adam é salvo antes, então
-> mesmo se o L-BFGS falhar o resultado do Adam fica intacto.
+> **L-BFGS** está OFF por padrão; só ligue (`--config.training.use_lbfgs=True`)
+> depois que o Adam convergir.
+
+---
+
+## Troubleshooting — `jax.devices()` mostrou CPU em vez de GPU
+1. No Ubuntu, rode `nvidia-smi`. Se **falhar** → é o driver NVIDIA do Windows
+   (Seção 0.3): atualize, depois no PowerShell `wsl --shutdown` e reabra o Ubuntu.
+2. Se `nvidia-smi` **funciona** mas o JAX vê CPU → reinstale o JAX de GPU no venv ativo:
+   ```bash
+   pip uninstall -y jax jaxlib && pip install -U "jax[cuda12]"
+   python -c "import jax; print(jax.devices())"
+   ```
+3. Confira que o ambiente está ativo (aparece `(.venv)` no início da linha). Se não:
+   `source ~/NS-PINNN/.venv/bin/activate`.
+4. Versão do CUDA do driver: `nvidia-smi` mostra "CUDA Version" no topo. Se for
+   **11.x** (driver antigo), troque o pacote: `pip install -U "jax[cuda11]"`.
+
+---
+
+## Apêndice — Fallback SEM GPU (Windows nativo, CPU)
+Só se não tiver admin pra instalar o WSL. Instale **Python 3.11** (marque "Add to
+PATH") e **Git for Windows**; no **PowerShell**:
+```powershell
+git clone https://github.com/Dovlask/NS-PINNN.git
+cd NS-PINNN
+git checkout EP
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -e .
+pip install jax jaxlib torch pytest
+cd examples\prolate_spheroid
+```
+Roda em CPU (lento, não usa a A2000). Os comandos das Seções 2–4 funcionam; o laço
+da Seção 5 precisa da versão PowerShell:
+```powershell
+foreach ($cfg in "ablation_A","ablation_B","ablation_C","ablation_D","plain","default","no_fourier_feature","no_rwf","no_grad_norm","ntk","sota") {
+  foreach ($s in 42,7,13,21,100) {
+    python main.py --config="configs/$cfg.py" --config.seed=$s --config.run_name="${cfg}_s$s"
+    python main.py --config="configs/$cfg.py" --config.seed=$s --config.run_name="${cfg}_s$s" --config.mode=eval
+  }
+}
+```
