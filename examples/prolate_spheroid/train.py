@@ -33,10 +33,10 @@ import models
 import geometry
 
 
-def load_taps(split_seed, train_frac=0.8):
-    """Load the frozen taps; split 80/20. Training uses cp_med (NOISY) only;
-    cp_true is ignored here (it is Lamb -> evaluate.py only)."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cp_synthetic.csv")
+def load_taps(config, train_frac=0.8):
+    """Load the frozen taps (config.tap_file); split 80/20. Training uses cp_med
+    only; cp_true is ignored here (it is Lamb -> evaluate.py only)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", config.tap_file)
     rows = []
     with open(path) as f:
         for r in csv.DictReader(f):
@@ -44,7 +44,7 @@ def load_taps(split_seed, train_frac=0.8):
     xyz = np.array([[float(r["x"]), float(r["y"]), float(r["z"])] for r in rows])
     cp_med = np.array([float(r["cp_med"]) for r in rows])
     n = len(rows)
-    rng = np.random.default_rng(split_seed)
+    rng = np.random.default_rng(config.seed_split)
     perm = rng.permutation(n)
     n_tr = int(round(train_frac * n))
     tr, ho = perm[:n_tr], perm[n_tr:]
@@ -97,7 +97,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
         json.dump(config.to_dict(), f, indent=2, default=str)
 
     # ---- data and fixed pools (seeded once per run) ----
-    (tap_xyz, tap_cp), _holdout = load_taps(config.seed_split)
+    (tap_xyz, tap_cp), _holdout = load_taps(config)
     surf, normals = geometry.sample_surface(config.sampling.n_surface, config.seed_surface)
     far = geometry.sample_farfield(config.sampling.n_farfield, config.seed_far)
     collocation = geometry.sample_collocation(config.sampling.n_collocation, config.seed_collocation)

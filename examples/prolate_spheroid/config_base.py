@@ -95,6 +95,11 @@ def build_config():
     config.seed_far = 303           #     far-field pool
     config.seed_split = 404         # (e) 80/20 tap split
 
+    # frozen dataset files read by train/evaluate (pilot_sigma0 points to the
+    # noise-free pair); sigma is recorded but never read by training.
+    config.tap_file = "cp_synthetic.csv"
+    config.meta_file = "metadata.json"
+
     return config
 
 

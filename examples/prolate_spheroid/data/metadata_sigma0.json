@@ -1,6 +1,6 @@
 {
   "case": "prolate_spheroid a/b=4, alpha=0 (axisymmetric potential flow)",
-  "timestamp_utc": "2026-06-09T18:09:41.836837+00:00",
+  "timestamp_utc": "2026-06-09T18:09:37.043659+00:00",
   "git_commit": "2065a83d9c4a6d36a1a7d0e2a6693027844f0519",
   "physical": {
     "T_air_K": 293.15,
@@ -39,8 +39,8 @@
     "theta_max_deg": 128.0,
     "azimuth_step_deg": 137.5,
     "per_tap_sigma": false,
-    "sigma": 0.029113405655397464,
-    "sigma_rms": 0.029113405655397464,
+    "sigma": 0.0,
+    "sigma_rms": 0.0,
     "sigma_dist": {
       "family": "truncnorm",
       "loc": 0.0,
@@ -50,8 +50,8 @@
     }
   },
   "seeds": {
-    "seed_sigma": 20240601,
-    "seed_noise": 20240602
+    "seed_sigma": null,
+    "seed_noise": null
   },
-  "noise_free_pilot": false
+  "noise_free_pilot": true
 }

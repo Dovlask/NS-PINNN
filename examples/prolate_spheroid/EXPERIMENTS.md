@@ -40,8 +40,13 @@ fixed and are not changed retroactively after seeing results.
 `seed_sigma = 20240601`). 40/40 taps survive the θ < 128.2° filter. Re_b ≈ 2.97e5
 (H1 ✓), Ma ≈ 0.087 (H3 ✓). Training never reads sigma.
 
+Noise-free pilot dataset: `data/cp_synthetic_sigma0.csv` + `metadata_sigma0.json`
+(cp_med = cp_true, sigma = 0; `python data_gen.py --sigma0`), used by
+`configs/pilot_sigma0.py` to fix hyperparameters (CLAUDE.md Sec. 9.7).
+
 ## Runs
 
+* **Noise-free pilot** (sigma=0, complete physics, plain arch): `pilot_sigma0`.
 * **Physics ablations** (plain control arch): A, B, C, D.
 * **Architecture / technique sweep** (config C physics): `plain`, `default`,
   `no_fourier_feature`, `no_rwf`, `no_grad_norm`, `ntk`, `sota`.

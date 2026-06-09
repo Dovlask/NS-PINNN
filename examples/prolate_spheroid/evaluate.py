@@ -34,15 +34,15 @@ SIGMA_HAT_LO, SIGMA_HAT_HI = 0.5, 1.5
 RESIDUAL_ORDERS_BELOW = 1e-2  # >= 2 orders of magnitude below O(1)
 
 
-def _load_sigma():
+def _load_sigma(config):
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "data", "metadata.json")) as f:
+                           "data", config.meta_file)) as f:
         return json.load(f)["data_protocol"]["sigma_rms"]
 
 
 def _build_model(config):
     """Rebuild the model with the same seeded pools so the checkpoint restores."""
-    (tap_xyz, tap_cp), holdout = load_taps(config.seed_split)
+    (tap_xyz, tap_cp), holdout = load_taps(config)
     surf, normals = geometry.sample_surface(config.sampling.n_surface, config.seed_surface)
     far = geometry.sample_farfield(config.sampling.n_farfield, config.seed_far)
     model = models.ProlateSpheroid(config, surf, normals, far, tap_xyz, tap_cp)
@@ -54,7 +54,7 @@ def evaluate(config: ml_collections.ConfigDict, workdir: str):
     fig_dir = os.path.join(run_dir, "figures")
     os.makedirs(fig_dir, exist_ok=True)
 
-    sigma = _load_sigma()
+    sigma = _load_sigma(config)
     model, (tap_xyz, tap_cp), (ho_xyz, ho_cp), _surf, _normals, _far = _build_model(config)
 
     # restore_checkpoint reduces the replicated state to a single device and
@@ -104,10 +104,16 @@ def evaluate(config: ml_collections.ConfigDict, workdir: str):
     metrics["rms_bc2_residual"] = float(np.sqrt(np.mean(bc2**2)))
 
     # ---- pass / fail against the pre-registered criteria ----
+    # For the sigma=0 pilot the sigma-relative criteria degenerate, so we use the
+    # absolute small-residual bar instead (the pilot is for hyperparameter choice).
+    sig_pos = sigma > 0.0
+    metrics["noise_free_pilot"] = not sig_pos
     metrics["pass"] = {
         "rel_L2_field_le_2pct": rel_l2 <= CRIT_REL_L2_FIELD,
-        "RMSE_cp_surface_le_sigma": metrics["RMSE_cp_surface"] <= sigma,
-        "sigma_hat_holdout_in_band": SIGMA_HAT_LO * sigma <= sigma_hat_ho <= SIGMA_HAT_HI * sigma,
+        "RMSE_cp_surface_le_sigma": (metrics["RMSE_cp_surface"] <= sigma) if sig_pos
+        else (metrics["RMSE_cp_surface"] <= RESIDUAL_ORDERS_BELOW),
+        "sigma_hat_holdout_in_band": (SIGMA_HAT_LO * sigma <= sigma_hat_ho <= SIGMA_HAT_HI * sigma)
+        if sig_pos else (sigma_hat_ho <= RESIDUAL_ORDERS_BELOW),
         "pde_residual_small": metrics["rms_pde_residual"] <= RESIDUAL_ORDERS_BELOW,
         "bc1_residual_small": metrics["rms_bc1_residual"] <= RESIDUAL_ORDERS_BELOW,
         "bc2_residual_small": metrics["rms_bc2_residual"] <= RESIDUAL_ORDERS_BELOW,
@@ -171,9 +177,10 @@ def evaluate(config: ml_collections.ConfigDict, workdir: str):
     res = np.concatenate([cp_w_train - tap_cp, cp_w_ho - ho_cp])
     fig = plt.figure(figsize=(7, 5))
     plt.hist(res, bins=20, density=True, alpha=0.6, label="tap residuals")
-    xx = np.linspace(res.min(), res.max(), 200)
-    plt.plot(xx, np.exp(-xx**2 / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi)),
-             "k-", label=r"$N(0,\sigma^2)$")
+    if sig_pos:
+        xx = np.linspace(res.min(), res.max(), 200)
+        plt.plot(xx, np.exp(-xx**2 / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi)),
+                 "k-", label=r"$N(0,\sigma^2)$")
     plt.xlabel(r"$C_p^w - C_p^{med}$"); plt.ylabel("density"); plt.legend()
     plt.title(f"Tap residuals vs sigma={sigma:.4f}")
     fig.savefig(os.path.join(fig_dir, "residual_hist.png"), dpi=200, bbox_inches="tight")

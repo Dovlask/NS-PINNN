@@ -62,7 +62,7 @@ def git_hash():
         return "unknown"
 
 
-def main():
+def main(sigma0=False):
     os.makedirs(DATA_DIR, exist_ok=True)
 
     eta, theta, phi = helical_taps()
@@ -78,20 +78,30 @@ def main():
 
     cp_true = C.cp_surface(eta)               # .tex eq.(Cp) -- analytic ground truth
 
-    sigma = draw_sigma()
-    noise_rng = np.random.default_rng(C.SEED_NOISE)
-    if C.PER_TAP_SIGMA:
-        eps = noise_rng.normal(0.0, sigma)    # sigma is a vector here
-        sigma_record = sigma.tolist()
-        sigma_rms = float(np.sqrt(np.mean(sigma**2)))
+    if sigma0:
+        # noise-free pilot (CLAUDE.md Sec. 9.7): cp_med = cp_true, i.e. data 100%
+        # coherent with the analytic solution -- used to fix hyperparameters.
+        eps = np.zeros(n)
+        sigma_record = 0.0
+        sigma_rms = 0.0
     else:
-        eps = noise_rng.normal(0.0, sigma, size=n)
-        sigma_record = sigma
-        sigma_rms = sigma
+        sigma = draw_sigma()
+        noise_rng = np.random.default_rng(C.SEED_NOISE)
+        if C.PER_TAP_SIGMA:
+            eps = noise_rng.normal(0.0, sigma)    # sigma is a vector here
+            sigma_record = sigma.tolist()
+            sigma_rms = float(np.sqrt(np.mean(sigma**2)))
+        else:
+            eps = noise_rng.normal(0.0, sigma, size=n)
+            sigma_record = sigma
+            sigma_rms = sigma
     cp_med = cp_true + eps
 
+    csv_path = os.path.join(DATA_DIR, "cp_synthetic_sigma0.csv" if sigma0 else "cp_synthetic.csv")
+    meta_path = os.path.join(DATA_DIR, "metadata_sigma0.json" if sigma0 else "metadata.json")
+
     # ---- freeze CSV ----
-    with open(CSV_PATH, "w", newline="") as f:
+    with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["x", "y", "z", "eta", "theta_deg", "phi_deg", "cp_true", "cp_med"])
         for i in range(n):
@@ -128,21 +138,31 @@ def main():
                            "scale": C.SIGMA_SCALE, "low": C.SIGMA_LOW,
                            "high": C.SIGMA_HIGH},
         },
-        "seeds": {"seed_sigma": C.SEED_SIGMA, "seed_noise": C.SEED_NOISE},
+        "seeds": {"seed_sigma": None if sigma0 else C.SEED_SIGMA,
+                  "seed_noise": None if sigma0 else C.SEED_NOISE},
+        "noise_free_pilot": sigma0,
     }
-    with open(META_PATH, "w") as f:
+    with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
 
     # ---- report (CLAUDE.md Sec. 9.4) ----
-    print("Frozen synthetic Cp dataset")
+    label = "NOISE-FREE pilot (sigma=0)" if sigma0 else "noisy"
+    print(f"Frozen synthetic Cp dataset [{label}]")
     print(f"  taps kept (theta < {C.THETA_SEP_DEG} deg): {n}/{C.N_TAPS}")
-    print(f"  sigma (drawn, seed {C.SEED_SIGMA})        : {sigma_rms:.6f}  [Cp units]")
+    print(f"  sigma_rms                                 : {sigma_rms:.6f}  [Cp units]")
     print(f"  Re_b = {C.RE_B:.3e}  (> 6e4 -> H1 {'OK' if C.RE_B > 6e4 else 'FAIL'})")
     print(f"  Ma   = {C.MA:.4f}    (< 0.3 -> H3 {'OK' if C.MA < 0.3 else 'FAIL'})")
     print(f"  cp_true range : [{cp_true.min():.4f}, {cp_true.max():.4f}]")
-    print(f"  csv      -> {CSV_PATH}")
-    print(f"  metadata -> {META_PATH}")
+    print(f"  csv      -> {csv_path}")
+    print(f"  metadata -> {meta_path}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    p = argparse.ArgumentParser(description="Freeze the synthetic Cp dataset.")
+    p.add_argument("--sigma0", action="store_true",
+                   help="noise-free pilot: cp_med = cp_true (data 100%% coherent "
+                        "with Lamb); writes data/cp_synthetic_sigma0.csv + metadata_sigma0.json")
+    args = p.parse_args()
+    main(sigma0=args.sigma0)
