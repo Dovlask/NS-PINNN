@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from functools import partial
 
@@ -7,6 +8,8 @@ import jax.numpy as jnp
 from jax import jit, grad
 from jax.tree_util import tree_map
 from jax.flatten_util import ravel_pytree
+
+import humanize
 
 from flax.training import checkpoints
 
@@ -32,6 +35,19 @@ def ntk_fn(apply_fn, params, *args):
 
 
 def save_checkpoint(state, workdir, keep=5, name=None):
+    workdir = os.path.abspath(workdir)
+
+    if not getattr(humanize.naturalsize, "_jaxpi_safe", False):
+        original_naturalsize = humanize.naturalsize
+
+        def _safe_naturalsize(value, *args, **kwargs):
+            if isinstance(value, float) and value != value:
+                value = 0.0
+            return original_naturalsize(value, *args, **kwargs)
+
+        _safe_naturalsize._jaxpi_safe = True
+        humanize.naturalsize = _safe_naturalsize
+
     # Create the workdir if it doesn't exist.
     if not os.path.isdir(workdir):
         os.makedirs(workdir)
@@ -41,10 +57,17 @@ def save_checkpoint(state, workdir, keep=5, name=None):
         # Get the first replica's state and save it.
         state = jax.device_get(tree_map(lambda x: x[0], state))
         step = int(state.step)
+
+        checkpoint_dir = os.path.join(workdir, f"checkpoint_{step}")
+        if os.path.isdir(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
+
         checkpoints.save_checkpoint(workdir, state, step=step, keep=keep)
 
 
 def restore_checkpoint(state, workdir, step=None):
+    workdir = os.path.abspath(workdir)
+
     # check if passed state is in a sharded state
     # if so, reduce to a single device sharding
 

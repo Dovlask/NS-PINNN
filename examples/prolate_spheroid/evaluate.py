@@ -157,7 +157,50 @@ def evaluate(config: ml_collections.ConfigDict, workdir: str):
     fig.savefig(os.path.join(fig_dir, "error_map.png"), dpi=200, bbox_inches="tight")
     plt.close(fig)
 
-    # (c) loss curves
+    # (c) direct Cp comparison on the same meridian plane
+    cp_w = np.full(XX.size, np.nan)
+    cp_l = np.full(XX.size, np.nan)
+    cp_w[mask] = np.asarray(model.cp_at(params, jnp.asarray(P[mask])))
+    cp_l[mask] = np.asarray(lamb.cp_field_batch(jnp.asarray(P[mask])))
+    valid_cp = np.isfinite(cp_w) & np.isfinite(cp_l)
+    cp_min = float(np.nanmin(np.concatenate([cp_w[valid_cp], cp_l[valid_cp]])))
+    cp_max = float(np.nanmax(np.concatenate([cp_w[valid_cp], cp_l[valid_cp]])))
+    diff_cp = np.abs(cp_w - cp_l)
+    diff_max = float(np.nanmax(diff_cp))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6), sharex=True, sharey=True)
+    panels = [
+        (cp_l.reshape(XX.shape), "Lamb analytic $C_p$", "viridis", cp_min, cp_max),
+        (cp_w.reshape(XX.shape), "PINN $C_p$", "viridis", cp_min, cp_max),
+        (diff_cp.reshape(XX.shape), r"$|C_p^{PINN} - C_p^{Lamb}|$", "magma", 0.0, diff_max if diff_max > 0 else 1.0),
+    ]
+    for ax, (data, title, cmap, vmin, vmax) in zip(axes, panels):
+        im = ax.pcolormesh(XX, ZZ, data, shading="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.set_title(title)
+        ax.set_xlabel("x*")
+        ax.set_ylabel("rho*")
+        fig.colorbar(im, ax=ax, shrink=0.88)
+    fig.suptitle("Meridian-plane Cp comparison")
+    fig.tight_layout()
+    fig.savefig(os.path.join(fig_dir, "cp_meridian_compare.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # (d) 1D exterior cut along the symmetry axis (rho = 0, x > a)
+    x_line = np.linspace(C.A_STAR * 1.001, C.R_INF, 500)
+    line_coords = np.stack([x_line, np.zeros_like(x_line), np.zeros_like(x_line)], axis=1)
+    cp_w_line = np.asarray(model.cp_at(params, jnp.asarray(line_coords)))
+    cp_l_line = np.asarray(lamb.cp_field_batch(jnp.asarray(line_coords)))
+    fig = plt.figure(figsize=(8, 4.8))
+    plt.plot(x_line, cp_l_line, "k-", lw=2, label="Lamb analytic")
+    plt.plot(x_line, cp_w_line, "r--", lw=2, label="PINN")
+    plt.xlabel(r"$x^*$")
+    plt.ylabel(r"$C_p$")
+    plt.title("Exterior-axis Cp comparison")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    fig.savefig(os.path.join(fig_dir, "cp_axis_compare.png"), dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+    # (e) loss curves
     hist_path = os.path.join(run_dir, "loss_history.csv")
     if os.path.exists(hist_path):
         with open(hist_path) as f:
@@ -173,7 +216,7 @@ def evaluate(config: ml_collections.ConfigDict, workdir: str):
             fig.savefig(os.path.join(fig_dir, "loss_curves.png"), dpi=200, bbox_inches="tight")
             plt.close(fig)
 
-    # (d) residual histogram at the taps with N(0, sigma^2) overlaid
+    # (f) residual histogram at the taps with N(0, sigma^2) overlaid
     res = np.concatenate([cp_w_train - tap_cp, cp_w_ho - ho_cp])
     fig = plt.figure(figsize=(7, 5))
     plt.hist(res, bins=20, density=True, alpha=0.6, label="tap residuals")
